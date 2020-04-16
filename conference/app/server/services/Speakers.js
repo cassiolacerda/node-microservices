@@ -1,9 +1,19 @@
 const axios = require("axios");
+const url = require("url");
+const crypto = require("crypto");
+const fs = require("fs");
+const util = require("util");
+
+const fsexists = util.promisify(fs.exists);
+
+const CircuitBreaker = require("../lib/CircuitBreaker");
+const cb = new CircuitBreaker();
 
 class SpeakersService {
   constructor({ serviceRegistryUrl, serviceVersionIdentifier }) {
     this.serviceRegistryUrl = serviceRegistryUrl;
     this.serviceVersionIdentifier = serviceVersionIdentifier;
+    this.cache = {};
   }
 
   async getImage(path) {
@@ -64,8 +74,37 @@ class SpeakersService {
   }
 
   async callService(requestOptions) {
-    const response = await axios(requestOptions);
-    return response.data;
+    const servicePath = url.parse(requestOptions.url).path;
+    const cacheKey = crypto
+      .createHash("md5")
+      .update(requestOptions.method + servicePath)
+      .digest("hex");
+
+    let cacheFile = null;
+    if (
+      requestOptions.responseType &&
+      requestOptions.responseType === "stream"
+    ) {
+      cacheFile = `${__dirname}/../../_imagecache/${cacheKey}`;
+    }
+
+    const result = await cb.callService(requestOptions);
+    if (!result) {
+      if (this.cache[cacheKey]) return this.cache[cacheKey];
+      if (cacheFile) {
+        const exists = await fsexists(cacheFile);
+        if (exists) return fs.createReadStream(cacheFile);
+      }
+      return false;
+    }
+
+    if (!cacheFile) {
+      this.cache[cacheKey] = result;
+    } else {
+      const ws = fs.createWriteStream(cacheFile);
+      result.pipe(ws);
+    }
+    return result;
   }
 
   async getService(servicename) {
