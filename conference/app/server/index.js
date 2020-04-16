@@ -1,3 +1,5 @@
+require("dotenv-safe").config();
+
 const express = require("express");
 const createError = require("http-errors");
 const path = require("path");
@@ -12,7 +14,7 @@ const app = express();
 const config = configs[app.get("env")];
 
 const speakers = new Speakers(config);
-const feedback = new Feedback(config.data.feedback);
+const feedback = new Feedback(config);
 
 app.set("view engine", "pug");
 if (app.get("env") === "development") {
